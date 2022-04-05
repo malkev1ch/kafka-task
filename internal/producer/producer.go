@@ -2,28 +2,58 @@ package producer
 
 import (
 	"context"
-	"fmt"
 	"github.com/malkev1ch/kafka-task/internal/config"
+	"github.com/malkev1ch/kafka-task/internal/logger"
 	"github.com/segmentio/kafka-go"
-	"github.com/sirupsen/logrus"
+	"github.com/segmentio/kafka-go/compress"
 	"strconv"
 	"time"
 )
 
+const (
+	writerReadTimeout  = 10 * time.Second
+	writerWriteTimeout = 10 * time.Second
+	writerRequiredAcks = -1
+	writerMaxAttempts  = 3
+	writerBatchSize    = 1
+	writerBatchTimeout = 10 * time.Millisecond
+)
+
 type Producer struct {
+	log    logger.Logger
+	cfg    *config.Config
 	Writer *kafka.Writer
 }
 
-func NewProducer(cfg *config.Config) (*Producer, error) {
+// NewProducer constructor
+func NewProducer(cfg *config.Config, log logger.Logger) *Producer {
+	return &Producer{
+		log: log,
+		cfg: cfg,
+	}
+}
+
+// GetNewKafkaWriter Create new kafka writer
+func (p *Producer) GetNewKafkaWriter(topic string) *kafka.Writer {
 	// initialize the writer with the broker addresses, and the topic
 	w := &kafka.Writer{
-		Addr:         kafka.TCP(cfg.KafkaHost + ":" + cfg.KafkaPort),
-		Topic:        cfg.KafkaTopic,
-		BatchSize:    1 << 10, // 1KB
-		BatchTimeout: 100 * time.Millisecond,
-		RequiredAcks: 1,
+		Addr:  kafka.TCP(p.cfg.Brokers...),
+		Topic: topic,
+		// LeastBytes is a Balancer implementation that routes messages to the partition that has received the least amount of data.
+		Balancer:     &kafka.LeastBytes{},
+		RequiredAcks: writerRequiredAcks,
+		MaxAttempts:  writerMaxAttempts,
+		BatchSize:    writerBatchSize,
+		// no matter what happens, write all pending messages
+		// every 10 milliseconds
+		BatchTimeout: writerBatchTimeout,
+		Logger:       kafka.LoggerFunc(p.log.Debugf),
+		ErrorLogger:  kafka.LoggerFunc(p.log.Errorf),
+		Compression:  compress.Snappy,
+		ReadTimeout:  writerReadTimeout,
+		WriteTimeout: writerWriteTimeout,
 	}
-	return &Producer{Writer: w}, nil
+	return w
 }
 
 func (p *Producer) WriteMessages(duration int, messagesCount int) error {
@@ -31,13 +61,15 @@ func (p *Producer) WriteMessages(duration int, messagesCount int) error {
 	// initialize a counter
 	i := 0
 	for k := 0; k < duration; k++ {
+
 		// start loop with timeout a second
 		// only number in messagesCount of operations per second can be reached
-		for counter, start, timeout := 0, time.Now(), time.After(time.Second); ; {
+		for stay, counter, start, timeout := true, 0, time.Now(), time.After(time.Second); stay; {
 			select {
 			case <-timeout:
-				logrus.Info("%v were sent per second", counter)
-				break
+				p.log.Infof("%v messages were sent per second", counter)
+				stay = false
+				continue
 			default:
 				// each kafka message has a key and value. The key is used
 				// to decide which partition (and consequently, which broker)
@@ -48,22 +80,27 @@ func (p *Producer) WriteMessages(duration int, messagesCount int) error {
 					Value: []byte("this is message-" + strconv.Itoa(i)),
 				})
 				if err != nil {
-					logrus.Error("could not write message " + err.Error())
+					p.log.Errorf("could not write message: %e - %T", err, err)
 					return err
 				}
-
-				// log a confirmation once the message is written
-				fmt.Println("writes:", i)
 				i++
 
+				// increment local counter
 				counter++
 				if counter == messagesCount {
 					currentTime := time.Now()
 					pastTime := currentTime.Sub(start)
-					result := pastTime - time.Second
+					result := time.Second - pastTime
+					p.log.Info("remaining time in second - ", result)
 					if result > 0 {
 						time.Sleep(result)
-						break
+						p.log.Infof("%v were sent per second", counter)
+						stay = false
+						continue
+					} else {
+						p.log.Infof("%v were sent per second", counter)
+						stay = false
+						continue
 					}
 				}
 			}
