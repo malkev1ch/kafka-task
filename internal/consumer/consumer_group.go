@@ -26,8 +26,6 @@ const (
 	partitionWatchInterval = 5 * time.Second
 	maxAttempts            = 3
 	dialTimeout            = 3 * time.Minute
-	messageTopic           = "kafka-task"
-	workersNum             = 1
 )
 
 // NewConsumerGroup constructor
@@ -79,6 +77,7 @@ func (cg *ConsumerGroup) consumeCreateMessage(ctx context.Context,
 			cg.log.Errorf("r.Close", err)
 			cancel()
 		}
+		cg.log.Infof("consumer group successfully stopped")
 	}()
 
 	cg.log.Infof("Starting consumer group: %v", r.Config().GroupID)
@@ -89,9 +88,15 @@ func (cg *ConsumerGroup) consumeCreateMessage(ctx context.Context,
 		go cg.createWorker(ctx, cancel, r, wg, i, repo)
 	}
 	wg.Wait()
+	cg.log.Infof("consumers stopped")
 }
 
 // RunConsumers run kafka consumers
-func (cg *ConsumerGroup) RunConsumers(ctx context.Context, cancel context.CancelFunc, repo *repository.PostgresRepository) {
+func (cg *ConsumerGroup) RunConsumers(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	messageTopic string,
+	workersNum int,
+	repo *repository.PostgresRepository) {
 	go cg.consumeCreateMessage(ctx, cancel, cg.GroupID, messageTopic, workersNum, repo)
 }

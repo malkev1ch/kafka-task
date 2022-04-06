@@ -1,0 +1,165 @@
+version: "3.8"
+
+services:
+  app:
+    container_name: application
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - POSTGRES_URL=postgres://postgres:qwerty@postgresdb:5432/postgres
+      - KAFKA_TOPIC=message_topic
+      - KAFKA_GROUP_ID=consumers
+      - LOG_LEVEL=info
+      - LOG_ENCODING=console
+      - BROKER=kafka1:19091,kafka2:19092,kafka3:19093
+      - DEV_BOOL=true
+    restart: always
+    depends_on:
+      - kafdrop
+      - kafka1
+      - kafka2
+      - kafka3
+      - zookeeper
+      - postgresdb
+    networks:
+      - custom_network
+
+  flyway:
+    image: flyway/flyway:8.5.5-alpine
+    container_name: my-flyway
+    command: -configFiles=/flyway/conf/flyway.config -locations=filesystem:/flyway/sql -connectRetries=60 migrate
+    volumes:
+      - ${PWD}/flyway/sql:/flyway/sql
+      - ${PWD}/flyway/conf/flyway.conf:/flyway/conf/flyway.config
+    depends_on:
+      - postgresdb
+    networks:
+      - custom_network
+
+  postgresdb:
+    image: postgres:14-alpine
+    container_name: first-task-database
+    ports:
+      - "5436:5432"
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=qwerty
+    restart: always
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - custom_network
+
+  zookeeper:
+    container_name: zookeeper
+    restart: always
+    image: zookeeper:3.5.9
+    hostname: zookeeper
+    ports:
+      - "22181:2181"
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_PORT: 2181
+      # with command below kafka connection returned error: SASL config status: Will not attempt to authenticate using SASL (unknown error)
+      # ZOO_SERVERS: server.1=zookeeper:2888:3888
+    volumes:
+      - ./data/zookeeper/data:/data
+      - ./data/zookeeper/datalog:/datalog
+    networks:
+      - custom_network
+
+  kafka1:
+    container_name: kafka1
+    restart: always
+    image: confluentinc/cp-kafka:7.1.0
+    user: "0:0"
+    hostname: kafka1
+    ports:
+      - "9091:9091"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://kafka1:19091,LISTENER_DOCKER_EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9091
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_BROKER_ID: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - ./data/kafka1/data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+    networks:
+      - custom_network
+
+  kafka2:
+    container_name: kafka2
+    restart: always
+    image: confluentinc/cp-kafka:7.1.0
+    user: "0:0"
+    hostname: kafka2
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://kafka2:19092,LISTENER_DOCKER_EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_BROKER_ID: 2
+    volumes:
+      - ./data/kafka2/data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+    networks:
+      - custom_network
+
+  kafka3:
+    container_name: kafka3
+    restart: always
+    image: confluentinc/cp-kafka:7.1.0
+    user: "0:0"
+    hostname: kafka3
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://kafka3:19093,LISTENER_DOCKER_EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_BROKER_ID: 3
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - ./data/kafka3/data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+    networks:
+      - custom_network
+
+  kafdrop:
+    container_name: kafdrop
+    restart: always
+    image: obsidiandynamics/kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka1:19091"
+    depends_on:
+      - kafka1
+      - kafka2
+      - kafka3
+    networks:
+      - custom_network
+
+volumes:
+  database:
+
+networks:
+  custom_network:
+    driver: bridge
+
+

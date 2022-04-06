@@ -33,7 +33,7 @@ func (cg *ConsumerGroup) createWorker(
 	for {
 		msg, err := r.ReadMessage(ctx)
 		if err != nil {
-			cg.log.Errorf("FetchMessage", err)
+			cg.log.Errorf("WORKER: %v, ReadMessage", workerID, err)
 			return
 		}
 

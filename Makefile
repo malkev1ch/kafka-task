@@ -1,5 +1,6 @@
-run:
-	go run main.go
+compose:
+	echo "Starting docker compose"
+	docker-compose -f docker-compose.yml up --build
 
-postgres:
-	docker run --name=first-task-local-db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=qwerty -e POSTGRES_DB=postgres -p 5433:5432 -d postgres:14
+create-topic:
+	docker exec -it kafka1 kafka-topics -bootstrap-server kafka1:19091 --create --topic message_topic --partitions 3 --replication-factor 2
