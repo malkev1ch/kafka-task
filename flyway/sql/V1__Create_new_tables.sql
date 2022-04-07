@@ -1,7 +1,7 @@
 CREATE TABLE messages (
-                          message_offset INT CONSTRAINT messages_primary_key PRIMARY KEY,
-                          topic VARCHAR,
+                          message_offset INT,
                           partition INT,
+                          topic VARCHAR,
                           consumer INT,
                           key VARCHAR,
                           value VARCHAR,

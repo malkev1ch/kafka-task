@@ -64,13 +64,15 @@ func (cg *ConsumerGroup) getNewKafkaReader(brokers []string, topic, groupID stri
 	})
 }
 
-func (cg *ConsumerGroup) consumeCreateMessage(ctx context.Context,
-	cancel context.CancelFunc,
+func (cg *ConsumerGroup) consumeCreateMessage(
 	groupID string,
 	topic string,
 	workersNum int,
 	repo *repository.PostgresRepository,
 ) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	r := cg.getNewKafkaReader(cg.Brokers, topic, groupID)
 	defer func() {
 		if err := r.Close(); err != nil {
@@ -93,10 +95,8 @@ func (cg *ConsumerGroup) consumeCreateMessage(ctx context.Context,
 
 // RunConsumers run kafka consumers
 func (cg *ConsumerGroup) RunConsumers(
-	ctx context.Context,
-	cancel context.CancelFunc,
 	messageTopic string,
 	workersNum int,
 	repo *repository.PostgresRepository) {
-	go cg.consumeCreateMessage(ctx, cancel, cg.GroupID, messageTopic, workersNum, repo)
+	go cg.consumeCreateMessage(cg.GroupID, messageTopic, workersNum, repo)
 }
