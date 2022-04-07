@@ -3,22 +3,37 @@ package handler
 import (
 	"fmt"
 	"github.com/labstack/echo"
+	"github.com/malkev1ch/kafka-task/internal/config"
+	"github.com/malkev1ch/kafka-task/internal/consumer"
 	"github.com/malkev1ch/kafka-task/internal/logger"
 	"github.com/malkev1ch/kafka-task/internal/producer"
+	"github.com/malkev1ch/kafka-task/internal/repository"
 	"net/http"
 	"strconv"
 )
 
 type Handler struct {
-	log  logger.Logger
-	prod *producer.Producer
+	repo      *repository.PostgresRepository
+	cfg       *config.Config
+	log       logger.Logger
+	producer  *producer.Producer
+	consGroup *consumer.ConsumerGroup
 }
 
 // NewHandler Handler constructor
-func NewHandler(prod *producer.Producer, log logger.Logger) *Handler {
+func NewHandler(
+	prod *producer.Producer,
+	consGroup *consumer.ConsumerGroup,
+	cfg *config.Config,
+	repo *repository.PostgresRepository,
+	log logger.Logger,
+) *Handler {
 	return &Handler{
-		prod: prod,
-		log:  log,
+		producer:  prod,
+		log:       log,
+		consGroup: consGroup,
+		cfg:       cfg,
+		repo:      repo,
 	}
 }
 
@@ -34,9 +49,24 @@ func (h *Handler) ProduceMessage(c echo.Context) error {
 	}
 	go func() {
 		h.log.Info("producer starts push message in topic")
-		if err := h.prod.WriteMessages(sendTimeSecond, messagesCountPerSecond); err != nil {
+		if err := h.producer.WriteMessages(sendTimeSecond, messagesCountPerSecond); err != nil {
 			h.log.Fatalf("error while sending messages - %e", err)
 		}
 	}()
 	return c.String(http.StatusOK, fmt.Sprintf("Successfully produced %d messages", messagesCountPerSecond*sendTimeSecond))
+}
+
+// StartConsumer receives signal to start consumers group
+func (h *Handler) StartConsumer(c echo.Context) error {
+
+	h.consGroup.RunConsumers(h.cfg.KafkaTopic, h.cfg.NumConsumer, h.repo)
+
+	return c.String(http.StatusOK, "consumer launch process started")
+}
+
+// StartProducer receives signal to start consumers group
+func (h *Handler) StartProducer(c echo.Context) error {
+	h.producer.Writer = h.producer.GetNewKafkaWriter(h.cfg.KafkaTopic)
+
+	return c.String(http.StatusOK, "producer launch process started")
 }

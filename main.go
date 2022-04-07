@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"github.com/caarlos0/env"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -15,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
 func main() {
@@ -26,9 +24,6 @@ func main() {
 	}
 
 	log.Printf("cfg: %+v\n", cfg)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	appLogger := logger.NewApiLogger(cfg)
 	appLogger.InitLogger()
@@ -41,15 +36,10 @@ func main() {
 	appLogger.Info("postgresDB connected")
 	defer repo.DB.Close()
 
-	//TODO implement http endpoints to start producer and consumer, after manually creating topic
-	time.Sleep(time.Second * 120)
-
 	consGroup := consumer.NewConsumerGroup(cfg.Brokers, cfg.KafkaGroupID, appLogger, cfg)
-	consGroup.RunConsumers(ctx, cancel, cfg.KafkaTopic, cfg.NumConsumer, repo)
 	appLogger.Info("ConsumerGroup created")
 
 	prod := producer.NewProducer(cfg, appLogger)
-	prod.Writer = prod.GetNewKafkaWriter(cfg.KafkaTopic)
 	appLogger.Info("Producer created")
 
 	defer func() {
@@ -59,7 +49,7 @@ func main() {
 		}
 	}()
 
-	handlers := handler.NewHandler(prod, appLogger)
+	handlers := handler.NewHandler(prod, consGroup, cfg, repo, appLogger)
 	// Echo instance
 	e := echo.New()
 
@@ -69,6 +59,8 @@ func main() {
 
 	// Routes
 	e.GET("messages", handlers.ProduceMessage)
+	e.GET("consumer/start", handlers.StartConsumer)
+	e.GET("producer/start", handlers.StartProducer)
 
 	// Start server
 	go func() {
